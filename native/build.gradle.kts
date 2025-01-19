@@ -5,7 +5,7 @@ plugins {
 setupCommon()
 
 android {
-    namespace = "com.topjohnwu.magisk.native"
+    namespace = "com.topjohnwu.magisk.binary"
 
     externalNativeBuild {
         ndkBuild {
@@ -25,6 +25,7 @@ android {
                     "B_MAGISK=1", "B_INIT=1", "B_BOOT=1", "B_POLICY=1",
                     "B_PRELOAD=1", "B_PROP=1", "B_CRT0=1"
                 )
+                abiFilters("armeabi-v7a", "arm64-v8a", "x86", "x86_64", "riscv64")
             }
         }
     }

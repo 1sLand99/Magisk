@@ -17,12 +17,12 @@ string native_bridge = "0";
 
 static bool is_compatible_with(uint32_t) {
     zygisk_logging();
-    hook_functions();
+    hook_entry();
     ZLOGD("load success\n");
     return false;
 }
 
-extern "C" [[maybe_unused]] NativeBridgeCallbacks NativeBridgeItf{
+extern "C" [[maybe_unused]] NativeBridgeCallbacks NativeBridgeItf {
     .version = 2,
     .padding = {},
     .isCompatibleWith = &is_compatible_with,
@@ -39,6 +39,11 @@ int remote_get_info(int uid, const char *process, uint32_t *flags, vector<int> &
     if (int fd = zygisk_request(ZygiskRequest::GET_INFO); fd >= 0) {
         write_int(fd, uid);
         write_string(fd, process);
+#ifdef __LP64__
+        write_int(fd, 1);
+#else
+        write_int(fd, 0);
+#endif
         xxread(fd, flags, sizeof(*flags));
         if (should_load_modules(*flags)) {
             fds = recv_fds(fd);
@@ -55,23 +60,17 @@ static vector<int> get_module_fds(bool is_64_bit) {
     // All fds passed to send_fds have to be valid file descriptors.
     // To workaround this issue, send over STDOUT_FILENO as an indicator of an
     // invalid fd as it will always be /dev/null in magiskd
-    if (is_64_bit) {
 #if defined(__LP64__)
+    if (is_64_bit) {
         std::transform(module_list->begin(), module_list->end(), std::back_inserter(fds),
             [](const module_info &info) { return info.z64 < 0 ? STDOUT_FILENO : info.z64; });
+    } else
 #endif
-    } else {
+    {
         std::transform(module_list->begin(), module_list->end(), std::back_inserter(fds),
             [](const module_info &info) { return info.z32 < 0 ? STDOUT_FILENO : info.z32; });
     }
     return fds;
-}
-
-static bool get_exe(int pid, char *buf, size_t sz) {
-    char exe[128];
-    if (ssprintf(exe, sizeof(exe), "/proc/%d/exe", pid) < 0)
-        return false;
-    return xreadlink(exe, buf, sz) > 0;
 }
 
 static pthread_mutex_t zygiskd_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -97,7 +96,11 @@ static void connect_companion(int client, bool is_64_bit) {
         zygiskd_socket = fds[0];
         if (fork_dont_care() == 0) {
             char exe[64];
-            ssprintf(exe, sizeof(exe), "%s/magisk%s", get_magisk_tmp(), (is_64_bit ? "64" : "32"));
+#if defined(__LP64__)
+            ssprintf(exe, sizeof(exe), "%s/magisk%s", get_magisk_tmp(), (is_64_bit ? "" : "32"));
+#else
+            ssprintf(exe, sizeof(exe), "%s/magisk", get_magisk_tmp());
+#endif
             // This fd has to survive exec
             fcntl(fds[1], F_SETFD, 0);
             char buf[16];
@@ -117,38 +120,31 @@ static void connect_companion(int client, bool is_64_bit) {
     send_fd(zygiskd_socket, client);
 }
 
-extern bool uid_granted_root(int uid);
 static void get_process_info(int client, const sock_cred *cred) {
     int uid = read_int(client);
     string process = read_string(client);
+    int arch = read_int(client);
+    auto &daemon = MagiskD();
 
     uint32_t flags = 0;
 
-    check_pkg_refresh();
     if (is_deny_target(uid, process)) {
         flags |= PROCESS_ON_DENYLIST;
     }
-    int manager_app_id = get_manager();
-    if (to_app_id(uid) == manager_app_id) {
+    if (daemon.get_manager(to_user_id(uid), nullptr, false) == uid) {
         flags |= PROCESS_IS_MAGISK_APP;
     }
     if (denylist_enforced) {
         flags |= DENYLIST_ENFORCING;
     }
-    if (uid_granted_root(uid)) {
+    if (daemon.uid_granted_root(uid)) {
         flags |= PROCESS_GRANTED_ROOT;
     }
 
     xwrite(client, &flags, sizeof(flags));
 
     if (should_load_modules(flags)) {
-        char buf[256];
-        if (!get_exe(cred->pid, buf, sizeof(buf))) {
-            LOGW("zygisk: remote process %d probably died, abort\n", cred->pid);
-            send_fd(client, -1);
-            return;
-        }
-        vector<int> fds = get_module_fds(str_ends(buf, "64"));
+        vector<int> fds = get_module_fds(arch);
         send_fds(client, fds.data(), fds.size());
     }
 
@@ -188,18 +184,15 @@ static void get_moddir(int client) {
 
 void zygisk_handler(int client, const sock_cred *cred) {
     int code = read_int(client);
-    char buf[256];
     switch (code) {
     case ZygiskRequest::GET_INFO:
         get_process_info(client, cred);
         break;
-    case ZygiskRequest::CONNECT_COMPANION:
-        if (get_exe(cred->pid, buf, sizeof(buf))) {
-            connect_companion(client, str_ends(buf, "64"));
-        } else {
-            LOGW("zygisk: remote process %d probably died, abort\n", cred->pid);
-        }
+    case ZygiskRequest::CONNECT_COMPANION: {
+        int arch = read_int(client);
+        connect_companion(client, arch);
         break;
+    }
     case ZygiskRequest::GET_MODDIR:
         get_moddir(client);
         break;

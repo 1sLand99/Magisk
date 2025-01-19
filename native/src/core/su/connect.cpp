@@ -16,11 +16,10 @@ using namespace std;
 #define START_ACTIVITY \
 "/system/bin/app_process", "/system/bin", "com.android.commands.am.Am", \
 "start", "-p", target, "--user", user, "-a", "android.intent.action.VIEW", \
-"-f", "0x58800020", "--es", "action", action
+"-f", "0x18800020", "--es", "action", action
 
-// 0x58800020 = FLAG_ACTIVITY_NEW_TASK|FLAG_ACTIVITY_MULTIPLE_TASK|
-//              FLAG_ACTIVITY_NO_HISTORY|FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS|
-//              FLAG_INCLUDE_STOPPED_PACKAGES
+// 0x18800020 = FLAG_ACTIVITY_NEW_TASK|FLAG_ACTIVITY_MULTIPLE_TASK|
+//              FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS|FLAG_INCLUDE_STOPPED_PACKAGES
 
 #define get_cmd(to) \
 ((to).command.empty() ? \
@@ -176,7 +175,7 @@ void app_log(const su_context &ctx) {
         extras.emplace_back("from.uid", ctx.info->uid);
         extras.emplace_back("to.uid", static_cast<int>(ctx.req.uid));
         extras.emplace_back("pid", ctx.pid);
-        extras.emplace_back("policy", ctx.info->access.policy);
+        extras.emplace_back("policy", +ctx.info->access.policy);
         extras.emplace_back("target", ctx.req.target);
         extras.emplace_back("context", ctx.req.context.data());
         extras.emplace_back("gids", &ctx.req.gids);
@@ -194,7 +193,7 @@ void app_notify(const su_context &ctx) {
         extras.reserve(3);
         extras.emplace_back("from.uid", ctx.info->uid);
         extras.emplace_back("pid", ctx.pid);
-        extras.emplace_back("policy", ctx.info->access.policy);
+        extras.emplace_back("policy", +ctx.info->access.policy);
 
         exec_cmd("notify", extras, ctx.info);
         exit(0);

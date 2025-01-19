@@ -20,10 +20,9 @@ LOCAL_SRC_FILES := \
     core/daemon.cpp \
     core/bootstages.cpp \
     core/socket.cpp \
-    core/db.cpp \
-    core/package.cpp \
     core/scripting.cpp \
     core/selinux.cpp \
+    core/sqlite.cpp \
     core/module.cpp \
     core/thread.cpp \
     core/core-rs.cpp \
@@ -38,7 +37,7 @@ LOCAL_SRC_FILES := \
     core/zygisk/hook.cpp \
     core/deny/cli.cpp \
     core/deny/utils.cpp \
-    core/deny/revert.cpp
+    core/deny/logcat.cpp
 
 LOCAL_LDLIBS := -llog
 LOCAL_LDFLAGS := -Wl,--dynamic-list=src/exported_sym.txt
@@ -52,7 +51,7 @@ ifdef B_PRELOAD
 include $(CLEAR_VARS)
 LOCAL_MODULE := init-ld
 LOCAL_SRC_FILES := init/preload.c
-LOCAL_STRIP_MODE := --strip-all
+LOCAL_LDFLAGS := -Wl,--strip-all
 include $(BUILD_SHARED_LIBRARY)
 
 endif
@@ -76,11 +75,10 @@ LOCAL_SRC_FILES := \
     init/selinux.cpp \
     init/init-rs.cpp
 
-LOCAL_LDFLAGS := -static -T src/lto_fix.lds
+LOCAL_LDFLAGS := -static
 
 ifdef B_CRT0
 LOCAL_STATIC_LIBRARIES += crt0
-LOCAL_LDFLAGS :=
 endif
 
 include $(BUILD_EXECUTABLE)
@@ -107,12 +105,11 @@ LOCAL_SRC_FILES := \
     boot/format.cpp \
     boot/boot-rs.cpp
 
-LOCAL_LDFLAGS := -static -T src/lto_fix.lds
+LOCAL_LDFLAGS := -static
 
 ifdef B_CRT0
 LOCAL_STATIC_LIBRARIES += crt0
-LOCAL_CFLAGS += -DUSE_MUSL_PRINTF
-LOCAL_LDFLAGS := -lm -Wl,--wrap=qsort
+LOCAL_LDFLAGS += -lm
 endif
 
 include $(BUILD_EXECUTABLE)
@@ -167,18 +164,10 @@ LOCAL_EXPORT_C_INCLUDES := $(LOCAL_C_INCLUDES)
 LOCAL_SRC_FILES := \
     sepolicy/api.cpp \
     sepolicy/sepolicy.cpp \
-    sepolicy/rules.cpp \
     sepolicy/policydb.cpp \
-    sepolicy/statement.cpp \
     sepolicy/policy-rs.cpp
 include $(BUILD_STATIC_LIBRARY)
 
 include src/Android-rs.mk
 include src/base/Android.mk
 include src/external/Android.mk
-
-ifdef B_BB
-
-include src/external/busybox/Android.mk
-
-endif

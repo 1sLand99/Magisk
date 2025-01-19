@@ -208,16 +208,22 @@ uint32_t binary_gcd(uint32_t u, uint32_t v) {
 }
 
 int switch_mnt_ns(int pid) {
-    char mnt[32];
-    ssprintf(mnt, sizeof(mnt), "/proc/%d/ns/mnt", pid);
-    if (access(mnt, R_OK) == -1) return 1; // Maybe process died..
+    int ret = -1;
+    int fd = syscall(__NR_pidfd_open, pid, 0);
+    if (fd > 0) {
+        ret = setns(fd, CLONE_NEWNS);
+        close(fd);
+    }
+    if (ret < 0) {
+        char mnt[32];
+        ssprintf(mnt, sizeof(mnt), "/proc/%d/ns/mnt", pid);
+        fd = open(mnt, O_RDONLY);
+        if (fd < 0) return 1; // Maybe process died..
 
-    int fd, ret;
-    fd = xopen(mnt, O_RDONLY);
-    if (fd < 0) return 1;
-    // Switch to its namespace
-    ret = xsetns(fd, 0);
-    close(fd);
+        // Switch to its namespace
+        ret = xsetns(fd, 0);
+        close(fd);
+    }
     return ret;
 }
 
@@ -289,38 +295,4 @@ const char *rust::Utf8CStr::data() const {
 
 size_t rust::Utf8CStr::length() const {
     return cxx$utf8str$len(this);
-}
-
-#define elm(i) (p + (i * size))
-
-// An alternative qsort implementation. Only used when linking with crt0
-extern "C"
-void __wrap_qsort(void *ptr, size_t count, size_t size, int (*comp)(const void*, const void*)) {
-    // Create the index array
-    uint8_t *p = (uint8_t *) ptr;
-    vector<int> v(count);
-    std::iota(v.begin(), v.end(), 0);
-
-    // Sort the index array
-    std::sort(v.begin(), v.end(), [=](int a, int b) {
-        return comp(elm(a), elm(b)) < 0;
-    });
-
-    // Reorganize the array with index array
-    void *t = malloc(size);
-    for (int i = 0; i < count; ++i) {
-        if (v[i] != i) {
-            memcpy(t, elm(i), size);
-            int j = i;
-            int k;
-            while (i != (k = v[j])) {
-                memcpy(elm(j), elm(k), size);
-                v[j] = j;
-                j = k;
-            }
-            memcpy(elm(j), t, size);
-            v[j] = j;
-        }
-    }
-    free(t);
 }
